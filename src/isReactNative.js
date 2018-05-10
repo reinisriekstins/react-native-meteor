@@ -2,10 +2,9 @@
 let rn;
 
 try {
-    require('react-native');
-    rn = true;
+  require('react-native');
+  rn = true;
 } catch (e) {}
-
 
 const isReactNative = rn;
 
