@@ -1,6 +1,5 @@
 import React from 'react';
-import Data from '../Data';
-import { default as Tracker } from 'trackr';
+import Tracker from 'trackr';
 
 // A class to keep the state and utility methods needed to manage
 // the Meteor data for a component.
@@ -9,13 +8,13 @@ class MeteorDataManager {
     this.component = component;
     this.computation = null;
     this.oldData = null;
-    this._meteorDataDep = new Tracker.Dependency();
+    // this._meteorDataDep = new Tracker.Dependency();
 
-    this._meteorDataChangedCallback = () => {
-      this._meteorDataDep.changed();
-    };
+    // this._meteorDataChangedCallback = () => {
+    //   this._meteorDataDep.changed();
+    // };
 
-    Data.onChange(this._meteorDataChangedCallback);
+    // Data.onChange(this._meteorDataChangedCallback);
   }
 
   dispose() {
@@ -24,7 +23,7 @@ class MeteorDataManager {
       this.computation = null;
     }
 
-    Data.offChange(this._meteorDataChangedCallback);
+    // Data.offChange(this._meteorDataChangedCallback);
   }
 
   calculateData() {
@@ -47,7 +46,7 @@ class MeteorDataManager {
     // it stops the inner one.
     this.computation = Tracker.nonreactive(() =>
       Tracker.autorun(c => {
-        this._meteorDataDep.depend();
+        // this._meteorDataDep.depend();
         if (c.firstRun) {
           const savedSetState = component.setState;
           try {
@@ -82,6 +81,7 @@ class MeteorDataManager {
         }
       })
     );
+
     return data;
   }
 
@@ -114,12 +114,16 @@ class MeteorDataManager {
 
 export const ReactMeteorData = {
   componentWillMount() {
-    Data.waitDdpReady(() => {
-      this.data = {};
-      this._meteorDataManager = new MeteorDataManager(this);
-      const newData = this._meteorDataManager.calculateData();
-      this._meteorDataManager.updateData(newData);
-    });
+    // Data.waitDdpReady(() => {
+    //   this.data = {};
+    //   this._meteorDataManager = new MeteorDataManager(this);
+    //   const newData = this._meteorDataManager.calculateData();
+    //   this._meteorDataManager.updateData(newData);
+    // });
+    this.data = {};
+    this._meteorDataManager = new MeteorDataManager(this);
+    const newData = this._meteorDataManager.calculateData();
+    this._meteorDataManager.updateData(newData);
   },
 
   componentWillUpdate(nextProps, nextState) {

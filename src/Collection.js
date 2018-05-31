@@ -1,9 +1,7 @@
+/* eslint-disable import/prefer-default-export */
 import Tracker from 'trackr';
 import EJSON from 'ejson';
-
-import Data from './Data';
 import Random from '../lib/Random';
-import call from './Call';
 import { isPlainObject } from '../lib/utils.js';
 
 class Cursor {
@@ -37,9 +35,13 @@ class Cursor {
 
 export class Collection {
   constructor(name, options = {}) {
-    if (!Data.db[name]) Data.db.addCollection(name);
+    this.connection = options.connection;
 
-    this._collection = Data.db[name];
+    if (!this.connection._db[name]) {
+      this.connection._db.addCollection(name);
+    }
+
+    this._collection = this.connection._db[name];
     this._cursoredFind = options.cursoredFind;
     this._name = name;
     this._transform = wrapTransform(options.transform);
@@ -49,7 +51,7 @@ export class Collection {
     let result;
     let docs;
 
-    if (typeof selector == 'string') {
+    if (typeof selector === 'string') {
       if (options) {
         docs = this._collection.findOne({ _id: selector }, options);
       } else {
@@ -105,8 +107,8 @@ export class Collection {
       });
 
     this._collection.upsert(item);
-    Data.waitDdpConnected(() => {
-      call(`/${this._name}/insert`, item, err => {
+    this.connection._waitDdpConnected(() => {
+      this.connection.call(`/${this._name}/insert`, item, err => {
         if (err) {
           this._collection.del(id);
           return callback(err);
@@ -134,8 +136,8 @@ export class Collection {
     // change mini mongo for optimize UI changes
     this._collection.upsert({ _id: id, ...modifier.$set });
 
-    Data.waitDdpConnected(() => {
-      call(`/${this._name}/update`, { _id: id }, modifier, err => {
+    this.connection._waitDdpConnected(() => {
+      this.connection.call(`/${this._name}/update`, { _id: id }, modifier, err => {
         if (err) {
           return callback(err);
         }
@@ -151,8 +153,8 @@ export class Collection {
     if (element) {
       this._collection.del(element._id);
 
-      Data.waitDdpConnected(() => {
-        call(`/${this._name}/remove`, { _id: id }, (err, res) => {
+      this.connection._waitDdpConnected(() => {
+        this.connection.call(`/${this._name}/remove`, { _id: id }, (err, res) => {
           if (err) {
             this._collection.upsert(element);
             return callback(err);
@@ -165,8 +167,6 @@ export class Collection {
     }
   }
 }
-
-//From Meteor core
 
 // Wrap a transform function to return objects that have the _id field
 // of the untransformed document. This ensures that subsystems such as

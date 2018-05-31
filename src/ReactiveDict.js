@@ -1,22 +1,21 @@
 import EJSON from 'ejson';
+import Tracker from 'trackr';
 
-import Data from './Data';
-
-const stringify = function(value) {
+function stringify(value) {
   if (value === undefined) return 'undefined';
   return EJSON.stringify(value);
 };
-
-const parse = function(serialized) {
+function parse(serialized) {
   if (serialized === undefined || serialized === 'undefined') return undefined;
   return EJSON.parse(serialized);
 };
 
 export default class ReactiveDict {
   constructor(dictName) {
+    this._dep = new Tracker.Dependecy();
     this.keys = {};
     if (typeof dictName === 'object') {
-      for (var i in dictName) {
+      for (const i in dictName) {
         this.keys[i] = stringify(dictName[i]);
       }
     }
@@ -33,14 +32,13 @@ export default class ReactiveDict {
     value = stringify(value);
 
     let oldSerializedValue = 'undefined';
-    if (Object.keys(this.keys).indexOf(key) != -1) {
+    if (Object.keys(this.keys).indexOf(key) !== -1) {
       oldSerializedValue = this.keys[key];
     }
     if (value === oldSerializedValue) return;
 
     this.keys[key] = value;
-
-    Data.notify('change');
+    this._dep.chnaged();
   }
   setDefault(key, value) {
     // for now, explicitly check for undefined, since there is no
@@ -51,6 +49,8 @@ export default class ReactiveDict {
     }
   }
   get(key) {
+    this._dep.depend();
+
     return parse(this.keys[key]);
   }
   equals(key, value) {

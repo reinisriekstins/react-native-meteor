@@ -1,141 +1,77 @@
-import Trackr from 'trackr';
+/* eslint-disable class-methods-use-this */
+import Tracker from 'trackr';
+import Minimongo from 'minimongo-cache';
 import EJSON from 'ejson';
 import DDP from '../lib/ddp.js';
 import Random from '../lib/Random.js';
 import MeteorError from '../lib/Error.js';
 import isReactNative from './isReactNative.js';
-
-import Data from './Data';
 import { Collection } from './Collection';
-import call from './Call';
-
 import withTracker from './components/withTracker';
-
 import ReactiveDict from './ReactiveDict';
-
-import User from './user/User';
 import Accounts from './user/Accounts';
+import { hashPassword } from '../lib/utils';
 
 let NetInfo;
+let Storage;
+let InteractionManager;
+let ReactNative;
 if (isReactNative) {
   NetInfo = require('react-native').NetInfo; // eslint-disable-line
+  Storage = require('react-native').AsyncStorage; // eslint-disable-line
+  InteractionManager = require('react-native').InteractionManager; // eslint-disable-line
+  ReactNative = require('react-native/Libraries/Renderer/shims/ReactNative'); // eslint-disable-line
+} else {
+  Storage = localStorage;
 }
 
-module.exports = {
-  Accounts,
-  Tracker: Trackr,
-  EJSON,
-  Error: MeteorError,
-  ReactiveDict,
-  isClient: true,
-  isReactNative,
-  Mongo: {
-    Collection
-  },
-  withTracker,
-  getData() {
-    return Data;
-  },
-  ...User,
-  status() {
-    return {
-      connected: Data.ddp ? Data.ddp.status === 'connected' : false,
-      status: Data.ddp ? Data.ddp.status : 'disconnected'
-    };
-  },
-  call,
-  disconnect() {
-    if (Data.ddp) {
-      Data.ddp.disconnect();
-    }
-  },
-  _get(obj /* , arguments */) {
-    for (let i = 1; i < arguments.length; i++) {
-      if (!(arguments[i] in obj)) {
-        return undefined;
-      }
-      obj = obj[arguments[i]];
-    }
-    return obj;
-  },
-  _ensure(obj /* , arguments */) {
-    for (let i = 1; i < arguments.length; i++) {
-      const key = arguments[i];
-      if (!(key in obj)) {
-        obj[key] = {};
-      }
-      obj = obj[key];
-    }
+const Mongo = {
+  Collection
+}
 
-    return obj;
-  },
-  _delete(obj /* , arguments */) {
-    const stack = [obj];
-    let leaf = true;
-    for (var i = 1; i < arguments.length - 1; i++) {
-      var key = arguments[i];
-      if (!(key in obj)) {
-        leaf = false;
-        break;
-      }
-      obj = obj[key];
-      if (typeof obj !== 'object') {
-        break;
-      }
-      stack.push(obj);
-    }
+const TOKEN_KEY = 'reactnativemeteor_usertoken';
 
-    for (var i = stack.length - 1; i >= 0; i--) {
-      var key = arguments[i + 1];
+function runAfterOtherComputations(fn) {
+  InteractionManager
+    ? InteractionManager.runAfterInteractions(() => {
+        Tracker.afterFlush(() => {
+          fn();
+        });
+      })
+    : Tracker.afterFlush(() => {
+        fn();
+      });
+}
 
-      if (leaf) {
-        leaf = false;
-      } else {
-        for (const other in stack[i][key]) {
-          return;
-        }
-      }
-      // not empty -- we're done
+export default class Meteor {
+  constructor(endpoint, options) {
+    this.endpoint = endpoint;
+    this.options = options;
+    this._isLoggingIn = false;
+    this._db = new Minimongo();
+    this._subscriptions = Object.create(null);
+    this._calls = [];
+    this.users = new Collection('users', { connection: this });
 
-      delete stack[i][key];
-    }
-  },
-  _subscriptionsRestart() {
-    for (const i in Data.subscriptions) {
-      const sub = Data.subscriptions[i];
-      Data.ddp.unsub(sub.subIdRemember);
-      sub.subIdRemember = Data.ddp.sub(sub.name, sub.params);
-    }
-  },
-  waitDdpConnected: Data.waitDdpConnected.bind(Data),
-  reconnect() {
-    Data.ddp && Data.ddp.connect();
-  },
-  connect(endpoint, options) {
-    if (!endpoint) {
-      endpoint = Data._endpoint;
-    }
-    if (!options) {
-      options = Data._options;
-    }
+    this._statusDep = new Tracker.Dependency();
+    this._loginDep = new Tracker.Dependency();
+  }
 
-    Data._endpoint = endpoint;
-    Data._options = options;
-
-    this.ddp = Data.ddp = new DDP({
-      endpoint,
+  connect() {
+    this._ddp = new DDP({
+      endpoint: this.endpoint,
       SocketConstructor: WebSocket,
-      ...options
+      ...this.options
     });
 
     NetInfo.isConnected.addEventListener('connectionChange', isConnected => {
-      if (isConnected && Data.ddp.autoReconnect) {
-        Data.ddp.connect();
+      if (isConnected && this._ddp.autoReconnect) {
+        this._ddp.connect();
       }
     });
 
-    Data.ddp.on('connected', () => {
-      Data.notify('change');
+    this._ddp.on('connected', () => {
+      this._statusDep.changed();
 
       console && console.info('Connected to DDP server.');
       this._loadInitialUser().then(() => {
@@ -144,79 +80,125 @@ module.exports = {
     });
 
     let lastDisconnect = null;
-    Data.ddp.on('disconnected', () => {
-      Data.notify('change');
+    this._ddp.on('disconnected', () => {
+      this._statusDep.changed();
 
       console && console.info('Disconnected from DDP server.');
-      if (!Data.ddp.autoReconnect) {
+      if (!this._ddp.autoReconnect) {
         return;
       }
 
       if (!lastDisconnect || new Date() - lastDisconnect > 3000) {
-        Data.ddp.connect();
+        this._ddp.connect();
       }
 
       lastDisconnect = new Date();
     });
 
-    Data.ddp.on('added', message => {
-      if (!Data.db[message.collection]) {
-        Data.db.addCollection(message.collection);
+    this._ddp.on('added', message => {
+      if (!this._db[message.collection]) {
+        this._db.addCollection(message.collection);
       }
-      Data.db[message.collection].upsert({
+
+      this._db[message.collection].upsert({
         _id: message.id,
         ...message.fields
       });
     });
 
-    Data.ddp.on('ready', message => {
+    this._ddp.on('ready', message => {
       const idsMap = new Map();
-      for (var i in Data.subscriptions) {
-        const sub = Data.subscriptions[i];
+      /*  eslint-disable guard-for-in */
+      for (const i in this._subscriptions) {
+        const sub = this._subscriptions[i];
         idsMap.set(sub.subIdRemember, sub.id);
       }
-      for (var i in message.subs) {
+
+      for (const i in message.subs) {
         const subId = idsMap.get(message.subs[i]);
         if (subId) {
-          const sub = Data.subscriptions[subId];
+          const sub = this._subscriptions[subId];
           sub.ready = true;
           sub.readyDeps.changed();
           sub.readyCallback && sub.readyCallback();
         }
       }
+      /* eslint-enable guard-for-in */
     });
 
-    Data.ddp.on('changed', message => {
-      Data.db[message.collection] &&
-        Data.db[message.collection].upsert({
+    this._ddp.on('changed', message => {
+      this._db[message.collection] &&
+        this._db[message.collection].upsert({
           _id: message.id,
           ...message.fields
         });
     });
 
-    Data.ddp.on('removed', message => {
-      Data.db[message.collection] &&
-        Data.db[message.collection].del(message.id);
+    this._ddp.on('removed', message => {
+      this._db[message.collection] &&
+        this._db[message.collection].del(message.id);
     });
-    Data.ddp.on('result', message => {
-      const call = Data.calls.find(call => call.id == message.id);
+
+    this._ddp.on('result', message => {
+      const call = this._calls.find(call => call.id === message.id);
       if (typeof call.callback === 'function') {
         call.callback(message.error, message.result);
       }
-      Data.calls.splice(Data.calls.findIndex(call => call.id == message.id), 1);
+
+      this._calls.splice(this._calls.findIndex(call => call.id === message.id), 1);
     });
 
-    Data.ddp.on('nosub', message => {
-      for (const i in Data.subscriptions) {
-        const sub = Data.subscriptions[i];
-        if (sub.subIdRemember == message.id) {
+    this._ddp.on('nosub', message => {
+      /* eslint-disable guard-for-in */
+      for (const i in this._subscriptions) {
+        const sub = this._subscriptions[i];
+        if (sub.subIdRemember === message.id) {
           console.warn('No subscription existing for', sub.name);
         }
       }
+      /* eslint-enable guard-for-in */
     });
-  },
-  subscribe(name) {
-    const params = Array.prototype.slice.call(arguments, 1);
+  }
+
+  reconnect() {
+    this._ddp && this._ddp.connect();
+  }
+
+  status() {
+    this._statusDep.depend();
+
+    return {
+      connected: this._ddp ? this._ddp.status === 'connected' : false,
+      status: this._ddp ? this._ddp.status : 'disconnected'
+    };
+  }
+
+  call(name, ...args) {
+    let callback;
+    if (args.length && typeof args[args.length - 1] === 'function') {
+      callback = args.pop();
+    }
+
+    const id = this._ddp.method(name, args);
+    this._calls.push({
+      id,
+      callback
+    });
+  }
+
+  callAsync(name, ...args) {
+    return new Promise((resolve, reject) => {
+      this.call(name, ...args, (error, result) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(result);
+        }
+      })
+    });
+  }
+
+  subscribe(name, ...params) {
     let callbacks = {};
     if (params.length) {
       const lastParam = params[params.length - 1];
@@ -252,8 +234,9 @@ module.exports = {
     // them all active.
 
     let existing = false;
-    for (const i in Data.subscriptions) {
-      const sub = Data.subscriptions[i];
+    /* eslint-disable guard-for-in */
+    for (const i in this._subscriptions) {
+      const sub = this._subscriptions[i];
       if (
         sub.inactive &&
         sub.name === name &&
@@ -262,10 +245,11 @@ module.exports = {
         existing = sub;
       }
     }
+    /* eslint-enable guard-for-in */
 
     let id;
     if (existing) {
-      id = existing.id;
+      id = existing.id; // eslint-disable-line
       existing.inactive = false;
 
       if (callbacks.onReady) {
@@ -283,23 +267,22 @@ module.exports = {
       }
     } else {
       // New sub! Generate an id, save it locally, and send message.
-
       id = Random.id();
-      const subIdRemember = Data.ddp.sub(name, params);
+      const subIdRemember = this._ddp.sub(name, params);
 
-      Data.subscriptions[id] = {
+      this._subscriptions[id] = {
         id,
         subIdRemember,
         name,
         params: EJSON.clone(params),
         inactive: false,
         ready: false,
-        readyDeps: new Trackr.Dependency(),
+        readyDeps: new Tracker.Dependency(),
         readyCallback: callbacks.onReady,
         stopCallback: callbacks.onStop,
         stop() {
-          Data.ddp.unsub(this.subIdRemember);
-          delete Data.subscriptions[this.id];
+          this.ddp.unsub(this.subIdRemember);
+          delete this._subscriptions[this.id];
           this.ready && this.readyDeps.changed();
 
           if (callbacks.onStop) {
@@ -311,37 +294,37 @@ module.exports = {
 
     // return a handle to the application.
     const handle = {
-      stop() {
-        if (Data.subscriptions[id]) {
-          Data.subscriptions[id].stop();
+      stop: () => {
+        if (this._subscriptions[id]) {
+          this._subscriptions[id].stop();
         }
       },
-      ready() {
-        if (!Data.subscriptions[id]) {
+      ready: () => {
+        if (!this._subscriptions[id]) {
           return false;
         }
 
-        const record = Data.subscriptions[id];
+        const record = this._subscriptions[id];
         record.readyDeps.depend();
         return record.ready;
       },
       subscriptionId: id
     };
 
-    if (Trackr.active) {
+    if (Tracker.active) {
       // We're in a reactive computation, so we'd like to unsubscribe when the
       // computation is invalidated... but not if the rerun just re-subscribes
       // to the same subscription!  When a rerun happens, we use onInvalidate
       // as a change to mark the subscription "inactive" so that it can
       // be reused from the rerun.  If it isn't reused, it's killed from
       // an afterFlush.
-      Trackr.onInvalidate(() => {
-        if (Data.subscriptions[id]) {
-          Data.subscriptions[id].inactive = true;
+      Tracker.onInvalidate(() => {
+        if (this._subscriptions[id]) {
+          this._subscriptions[id].inactive = true;
         }
 
-        Trackr.afterFlush(() => {
-          if (Data.subscriptions[id] && Data.subscriptions[id].inactive) {
+        Tracker.afterFlush(() => {
+          if (this._subscriptions[id] && this._subscriptions[id].inactive) {
             handle.stop();
           }
         });
@@ -350,4 +333,173 @@ module.exports = {
 
     return handle;
   }
-};
+
+  user() {
+    if (!this._userIdSaved) return null;
+
+    return this.users.findOne(this._userIdSaved);
+  }
+
+  userId() {
+    if (!this._userIdSaved) return null;
+
+    const user = this.users.findOne(this._userIdSaved);
+    return user && user._id;
+  }
+
+  loggingIn() {
+    this._loginDep.depend();
+    return this._isLoggingIn;
+  }
+
+  logout(callback) {
+    this.call('logout', (err) => {
+        this.handleLogout();
+        // TODO: Why reconnect here?
+        Meteor.connect();
+
+        typeof callback === 'function' && callback(err);
+    });
+  }
+
+  handleLogout() {
+      Storage.removeItem(TOKEN_KEY);
+      this._tokenIdSaved = null;
+      this._userIdSaved = null;
+  }
+
+  loginWithPassword(selector, password, group, callback) {
+    if (typeof selector === 'string') {
+        if (selector.indexOf('@') === -1) { selector = { username: selector }; } else { selector = { email: selector }; }
+    }
+
+    this._startLoggingIn();
+    this.call('login', {
+        user: selector,
+        password: hashPassword(password),
+        group
+    }, (err, result) => {
+        this._endLoggingIn();
+
+        this._handleLoginCallback(err, result);
+
+        typeof callback === 'function' && callback(err);
+    });
+  }
+
+  logoutOtherClients(callback = () => {}) {
+      this.call('getNewToken', (err, res) => {
+          if (err) return callback(err);
+
+          this._handleLoginCallback(err, res);
+
+          this.call('removeOtherTokens', (err) => {
+              callback(err);
+          });
+      });
+  }
+
+  getCollection(name) {
+    return new Collection(name, { connection: this });
+  }
+
+  _login(user, callback) {
+      this._startLoggingIn();
+      this.call('login', user, (err, result) => {
+          this._endLoggingIn();
+          this._handleLoginCallback(err, result);
+          typeof callback === 'function' && callback(err);
+      });
+  }
+
+  _startLoggingIn() {
+    this._isLoggingIn = true;
+    this._loginDep.changed();  
+  }
+
+  _endLoggingIn() {
+    this._isLoggingIn = false;
+    this._loginDep.changed();
+  }
+
+  _handleLoginCallback(err, result) {
+      if (!err) { // save user id and token
+          Storage.setItem(TOKEN_KEY, result.token);
+          this._tokenIdSaved = result.token;
+          this._userIdSaved = result.id;
+      } else {
+          this.handleLogout();
+      }
+  }
+  
+  _loginWithToken(value) {
+      this._tokenIdSaved = value;
+      if (value !== null) {
+          this._startLoggingIn();
+          this.call('login', { resume: value }, (err, result) => {
+              this._endLoggingIn();
+              this._handleLoginCallback(err, result);
+          });
+      } else {
+          this._endLoggingIn();
+      }
+  }
+
+  getAuthToken() {
+      return this._tokenIdSaved;
+  }
+
+  async _loadInitialUser() {
+      let value = null;
+      try {
+          value = await Storage.getItem(TOKEN_KEY);
+      } catch (error) {
+          console && console.warn(`Error Loading User: ${error.message}`);
+      } finally {
+          this._loginWithToken(value);
+      }
+  }
+
+  _subscriptionsRestart() {
+    /* eslint-disable guard-for-in */
+    for (const i in this._subscriptions) {
+      const sub = this._subscriptions[i];
+      this._ddp.unsub(sub.subIdRemember);
+      sub.subIdRemember = this._ddp.sub(sub.name, sub.params);
+    }
+    /* eslint-enable guard-for-in */
+  }
+
+  _waitDdpReady(cb) {
+    if (this._ddp) {
+      cb();
+    } else {
+      runAfterOtherComputations(() => {
+        this._waitDdpReady(cb);
+      });
+    }
+  }
+
+  _waitDdpConnected(cb) {
+    if (this._ddp && this.ddp.status === 'connected') {
+      cb();
+    } else if (this._ddp) {
+      this._ddp.once('connected', cb);
+    } else {
+      setTimeout(() => {
+        this._waitDdpConnected(cb);
+      }, 10);
+    }
+  }
+}
+
+export {
+  Accounts,
+  Tracker,
+  EJSON,
+  MeteorError as Error,
+  ReactiveDict,
+  withTracker,
+  isReactNative,
+  Mongo
+}
