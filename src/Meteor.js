@@ -27,7 +27,7 @@ if (isReactNative) {
 
 const Mongo = {
   Collection
-}
+};
 
 const TOKEN_KEY = 'reactnativemeteor_usertoken';
 
@@ -145,7 +145,10 @@ export default class Meteor {
         call.callback(message.error, message.result);
       }
 
-      this._calls.splice(this._calls.findIndex(call => call.id === message.id), 1);
+      this._calls.splice(
+        this._calls.findIndex(call => call.id === message.id),
+        1
+      );
     });
 
     this._ddp.on('nosub', message => {
@@ -194,7 +197,7 @@ export default class Meteor {
         } else {
           resolve(result);
         }
-      })
+      });
     });
   }
 
@@ -353,50 +356,58 @@ export default class Meteor {
   }
 
   logout(callback) {
-    this.call('logout', (err) => {
-        this.handleLogout();
-        // TODO: Why reconnect here?
-        Meteor.connect();
+    this.call('logout', err => {
+      this.handleLogout();
+      // TODO: Why reconnect here?
+      Meteor.connect();
 
-        typeof callback === 'function' && callback(err);
+      typeof callback === 'function' && callback(err);
     });
   }
 
   handleLogout() {
-      Storage.removeItem(TOKEN_KEY);
-      this._tokenIdSaved = null;
-      this._userIdSaved = null;
+    Storage.removeItem(TOKEN_KEY);
+    this._tokenIdSaved = null;
+    this._userIdSaved = null;
   }
 
   loginWithPassword(selector, password, group, callback) {
     if (typeof selector === 'string') {
-        if (selector.indexOf('@') === -1) { selector = { username: selector }; } else { selector = { email: selector }; }
+      if (selector.indexOf('@') === -1) {
+        selector = { username: selector };
+      } else {
+        selector = { email: selector };
+      }
     }
 
     this._startLoggingIn();
-    this.call('login', {
+    this.call(
+      'login',
+      {
         user: selector,
         password: hashPassword(password),
         group
-    }, (err, result) => {
+      },
+      (err, result) => {
         this._endLoggingIn();
 
         this._handleLoginCallback(err, result);
 
         typeof callback === 'function' && callback(err);
-    });
+      }
+    );
   }
 
   logoutOtherClients(callback = () => {}) {
-      this.call('getNewToken', (err, res) => {
-          if (err) return callback(err);
+    this.call('getNewToken', (err, res) => {
+      if (err) return callback(err);
 
-          this._handleLoginCallback(err, res);
+      this._handleLoginCallback(err, res);
 
-          this.call('removeOtherTokens', (err) => {
-              callback(err);
-          });
+      this.call('removeOtherTokens', err => {
+        callback(err);
       });
+    });
   }
 
   getCollection(name) {
@@ -404,17 +415,17 @@ export default class Meteor {
   }
 
   _login(user, callback) {
-      this._startLoggingIn();
-      this.call('login', user, (err, result) => {
-          this._endLoggingIn();
-          this._handleLoginCallback(err, result);
-          typeof callback === 'function' && callback(err);
-      });
+    this._startLoggingIn();
+    this.call('login', user, (err, result) => {
+      this._endLoggingIn();
+      this._handleLoginCallback(err, result);
+      typeof callback === 'function' && callback(err);
+    });
   }
 
   _startLoggingIn() {
     this._isLoggingIn = true;
-    this._loginDep.changed();  
+    this._loginDep.changed();
   }
 
   _endLoggingIn() {
@@ -423,41 +434,42 @@ export default class Meteor {
   }
 
   _handleLoginCallback(err, result) {
-      if (!err) { // save user id and token
-          Storage.setItem(TOKEN_KEY, result.token);
-          this._tokenIdSaved = result.token;
-          this._userIdSaved = result.id;
-      } else {
-          this.handleLogout();
-      }
+    if (!err) {
+      // save user id and token
+      Storage.setItem(TOKEN_KEY, result.token);
+      this._tokenIdSaved = result.token;
+      this._userIdSaved = result.id;
+    } else {
+      this.handleLogout();
+    }
   }
-  
+
   _loginWithToken(value) {
-      this._tokenIdSaved = value;
-      if (value !== null) {
-          this._startLoggingIn();
-          this.call('login', { resume: value }, (err, result) => {
-              this._endLoggingIn();
-              this._handleLoginCallback(err, result);
-          });
-      } else {
-          this._endLoggingIn();
-      }
+    this._tokenIdSaved = value;
+    if (value !== null) {
+      this._startLoggingIn();
+      this.call('login', { resume: value }, (err, result) => {
+        this._endLoggingIn();
+        this._handleLoginCallback(err, result);
+      });
+    } else {
+      this._endLoggingIn();
+    }
   }
 
   getAuthToken() {
-      return this._tokenIdSaved;
+    return this._tokenIdSaved;
   }
 
   async _loadInitialUser() {
-      let value = null;
-      try {
-          value = await Storage.getItem(TOKEN_KEY);
-      } catch (error) {
-          console && console.warn(`Error Loading User: ${error.message}`);
-      } finally {
-          this._loginWithToken(value);
-      }
+    let value = null;
+    try {
+      value = await Storage.getItem(TOKEN_KEY);
+    } catch (error) {
+      console && console.warn(`Error Loading User: ${error.message}`);
+    } finally {
+      this._loginWithToken(value);
+    }
   }
 
   _subscriptionsRestart() {
@@ -502,4 +514,4 @@ export {
   withTracker,
   isReactNative,
   Mongo
-}
+};

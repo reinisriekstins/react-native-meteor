@@ -137,13 +137,18 @@ export class Collection {
     this._collection.upsert({ _id: id, ...modifier.$set });
 
     this.connection._waitDdpConnected(() => {
-      this.connection.call(`/${this._name}/update`, { _id: id }, modifier, err => {
-        if (err) {
-          return callback(err);
-        }
+      this.connection.call(
+        `/${this._name}/update`,
+        { _id: id },
+        modifier,
+        err => {
+          if (err) {
+            return callback(err);
+          }
 
-        callback(null, id);
-      });
+          callback(null, id);
+        }
+      );
     });
   }
 
@@ -154,13 +159,17 @@ export class Collection {
       this._collection.del(element._id);
 
       this.connection._waitDdpConnected(() => {
-        this.connection.call(`/${this._name}/remove`, { _id: id }, (err, res) => {
-          if (err) {
-            this._collection.upsert(element);
-            return callback(err);
+        this.connection.call(
+          `/${this._name}/remove`,
+          { _id: id },
+          (err, res) => {
+            if (err) {
+              this._collection.upsert(element);
+              return callback(err);
+            }
+            callback(null, res);
           }
-          callback(null, res);
-        });
+        );
       });
     } else {
       callback(`No document with _id : ${id}`);
