@@ -54,8 +54,8 @@ export default class Meteor {
     this._isLoggingIn = false;
     this._db = new Minimongo();
     this._subscriptions = Object.create(null);
+    this._collections = Object.create(null);
     this._calls = [];
-    this.users = new Collection('users', { connection: this });
 
     this._statusDep = new Tracker.Dependency();
     this._loginDep = new Tracker.Dependency();
@@ -64,6 +64,10 @@ export default class Meteor {
 
   get connectionId() {
     return this.options.connectionId;
+  }
+
+  get users() {
+    return this.getCollection('users');
   }
 
   connect() {
@@ -423,7 +427,15 @@ export default class Meteor {
   }
 
   getCollection(name) {
-    return new Collection(name, { connection: this });
+    let collection;
+    if (this._collections[name]) {
+      collection = this._collections[name];
+    } else {
+      collection = new Collection(name, { connection: this });
+      this._collections[name] = collection;
+    }
+     
+    return collection;
   }
 
   _login(user, callback) {

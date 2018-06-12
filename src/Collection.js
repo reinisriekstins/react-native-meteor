@@ -45,9 +45,14 @@ export class Collection {
     this._cursoredFind = options.cursoredFind;
     this._name = name;
     this._transform = wrapTransform(options.transform);
+    this._dep = new Tracker.Dependency();
+    
+    this.connection._db.on('change', this._handleDataChange);
   }
 
   find(selector, options) {
+    this._dep.depend();
+
     let result;
     let docs;
 
@@ -75,6 +80,8 @@ export class Collection {
   }
 
   findOne(selector, options) {
+    this._dep.depend();
+
     let result = this.find(selector, options);
 
     if (result) {
@@ -173,6 +180,12 @@ export class Collection {
       });
     } else {
       callback(`No document with _id : ${id}`);
+    }
+  }
+
+  _handleDataChange = (changeRecord) => {
+    if (this._name in changeRecord) {
+      this._dep.changed();
     }
   }
 }
