@@ -184,7 +184,7 @@ export class Collection {
   }
 
   _handleDataChange = (changeRecord) => {
-    if (this._name in changeRecord) {
+    if (changeRecord[this._name]) {
       this._dep.changed();
     }
   }
