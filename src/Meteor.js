@@ -12,6 +12,8 @@ import ReactiveDict from './ReactiveDict';
 import Accounts from './user/Accounts';
 import { hashPassword } from '../lib/utils';
 
+process.nextTick = setImmediate;
+
 let NetInfo;
 let Storage;
 let InteractionManager;
@@ -29,8 +31,6 @@ const Mongo = {
   Collection
 };
 
-const TOKEN_KEY = 'reactnativemeteor_usertoken';
-
 function runAfterOtherComputations(fn) {
   InteractionManager
     ? InteractionManager.runAfterInteractions(() => {
@@ -45,8 +45,12 @@ function runAfterOtherComputations(fn) {
 
 export default class Meteor {
   constructor(endpoint, options) {
+    const defaultOptions = {
+      connectionId: Random.id(6)
+    }
+
     this.endpoint = endpoint;
-    this.options = options;
+    this.options = { ...defaultOptions, options };
     this._isLoggingIn = false;
     this._db = new Minimongo();
     this._subscriptions = Object.create(null);
@@ -55,6 +59,11 @@ export default class Meteor {
 
     this._statusDep = new Tracker.Dependency();
     this._loginDep = new Tracker.Dependency();
+    this._userDep = new Tracker.Dependency();
+  }
+
+  get connectionId() {
+    return this.options.connectionId;
   }
 
   connect() {
@@ -284,7 +293,7 @@ export default class Meteor {
         readyCallback: callbacks.onReady,
         stopCallback: callbacks.onStop,
         stop() {
-          this.ddp.unsub(this.subIdRemember);
+          this._ddp.unsub(this.subIdRemember);
           delete this._subscriptions[this.id];
           this.ready && this.readyDeps.changed();
 
@@ -338,12 +347,14 @@ export default class Meteor {
   }
 
   user() {
+    this._userDep.depend();
     if (!this._userIdSaved) return null;
 
     return this.users.findOne(this._userIdSaved);
   }
 
   userId() {
+    this._userDep.depend();
     if (!this._userIdSaved) return null;
 
     const user = this.users.findOne(this._userIdSaved);
@@ -366,9 +377,10 @@ export default class Meteor {
   }
 
   handleLogout() {
-    Storage.removeItem(TOKEN_KEY);
+    Storage.removeItem(`TOKEN/${this.connectionId}`);
     this._tokenIdSaved = null;
     this._userIdSaved = null;
+    this._userDep.changed();
   }
 
   loginWithPassword(selector, password, group, callback) {
@@ -436,9 +448,10 @@ export default class Meteor {
   _handleLoginCallback(err, result) {
     if (!err) {
       // save user id and token
-      Storage.setItem(TOKEN_KEY, result.token);
+      Storage.setItem(`TOKEN/${this.connectionId}`, result.token);
       this._tokenIdSaved = result.token;
       this._userIdSaved = result.id;
+      this._userDep.changed();
     } else {
       this.handleLogout();
     }
@@ -464,7 +477,7 @@ export default class Meteor {
   async _loadInitialUser() {
     let value = null;
     try {
-      value = await Storage.getItem(TOKEN_KEY);
+      value = await Storage.getItem(`TOKEN/${this.connectionId}`);
     } catch (error) {
       console && console.warn(`Error Loading User: ${error.message}`);
     } finally {
@@ -493,7 +506,7 @@ export default class Meteor {
   }
 
   _waitDdpConnected(cb) {
-    if (this._ddp && this.ddp.status === 'connected') {
+    if (this._ddp && this._ddp.status === 'connected') {
       cb();
     } else if (this._ddp) {
       this._ddp.once('connected', cb);
