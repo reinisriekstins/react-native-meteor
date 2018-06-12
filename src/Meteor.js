@@ -44,13 +44,13 @@ function runAfterOtherComputations(fn) {
 }
 
 export default class Meteor {
-  constructor(endpoint, options) {
+  constructor(endpoint, options = {}) {
     const defaultOptions = {
       connectionId: Random.id(6)
     }
 
     this.endpoint = endpoint;
-    this.options = { ...defaultOptions, options };
+    this.options = { ...defaultOptions, ...options };
     this._isLoggingIn = false;
     this._db = new Minimongo();
     this._subscriptions = Object.create(null);
@@ -490,6 +490,7 @@ export default class Meteor {
     let value = null;
     try {
       value = await Storage.getItem(`TOKEN/${this.connectionId}`);
+      console.log('Logging in with token:', value);
     } catch (error) {
       console && console.warn(`Error Loading User: ${error.message}`);
     } finally {
