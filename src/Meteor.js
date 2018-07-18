@@ -180,6 +180,12 @@ export default class Meteor {
     this._ddp && this._ddp.connect();
   }
 
+  disconnect() {
+    if (this._ddp) {
+      this._ddp.disconnect();
+    }
+  }
+
   status() {
     this._statusDep.depend();
 
@@ -296,9 +302,12 @@ export default class Meteor {
         readyDeps: new Tracker.Dependency(),
         readyCallback: callbacks.onReady,
         stopCallback: callbacks.onStop,
-        stop() {
+        _unsub: () => {
           this._ddp.unsub(this.subIdRemember);
           delete this._subscriptions[this.id];
+        },
+        stop() {
+          this._unsub();
           this.ready && this.readyDeps.changed();
 
           if (callbacks.onStop) {
@@ -373,8 +382,6 @@ export default class Meteor {
   logout(callback) {
     this.call('logout', err => {
       this.handleLogout();
-      // TODO: Why reconnect here?
-      Meteor.connect();
 
       typeof callback === 'function' && callback(err);
     });
