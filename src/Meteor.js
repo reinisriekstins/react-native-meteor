@@ -19,7 +19,7 @@ let Storage;
 let InteractionManager;
 let ReactNative;
 if (isReactNative) {
-  NetInfo = require('react-native-netinfo').NetInfo; // eslint-disable-line
+  NetInfo = require('@react-native-community/netinfo').NetInfo; // eslint-disable-line
   Storage = require('react-native').AsyncStorage; // eslint-disable-line
   InteractionManager = require('react-native').InteractionManager; // eslint-disable-line
   ReactNative = require('react-native/Libraries/Renderer/shims/ReactNative'); // eslint-disable-line
