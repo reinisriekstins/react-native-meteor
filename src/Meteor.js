@@ -2,6 +2,10 @@
 import Tracker from 'trackr';
 import Minimongo from 'minimongo-cache';
 import EJSON from 'ejson';
+import NetInfo from '@react-native-community/netinfo';
+import AsyncStorage from '@react-native-community/async-storage'; // eslint-disable-line
+import ReactNative from 'react-native/Libraries/Renderer/shims/ReactNative'; // eslint-disable-line
+import { InteractionManager } from 'react-native'; // eslint-disable-line
 import DDP from '../lib/ddp.js';
 import Random from '../lib/Random.js';
 import MeteorError from '../lib/Error.js';
@@ -14,19 +18,6 @@ import Accounts from './user/Accounts';
 import { hashPassword } from '../lib/utils';
 
 process.nextTick = setImmediate;
-
-let NetInfo;
-let Storage;
-let InteractionManager;
-let ReactNative;
-if (isReactNative) {
-  NetInfo = require('@react-native-community/netinfo').NetInfo; // eslint-disable-line
-  Storage = require('@react-native-community/async-storage').AsyncStorage; // eslint-disable-line
-  InteractionManager = require('react-native').InteractionManager; // eslint-disable-line
-  ReactNative = require('react-native/Libraries/Renderer/shims/ReactNative'); // eslint-disable-line
-} else {
-  Storage = localStorage;
-}
 
 const Mongo = {
   Collection
@@ -71,6 +62,14 @@ export default class Meteor {
     return this.getCollection('users');
   }
 
+  handleConnectionChange = state => {
+    const { isConnected } = state;
+    if (isConnected && this._ddp.autoReconnect) {
+      this._ddp.connect();
+    }
+  }
+
+  unsubFromNetworkStatus = null;
   connect() {
     this._ddp = new DDP({
       endpoint: this.endpoint,
@@ -78,11 +77,7 @@ export default class Meteor {
       ...this.options
     });
 
-    NetInfo.isConnected.addEventListener('connectionChange', isConnected => {
-      if (isConnected && this._ddp.autoReconnect) {
-        this._ddp.connect();
-      }
-    });
+    this.unsubFromNetworkStatus = NetInfo.addEventListener(this.handleConnectionChange);
 
     this._ddp.on('connected', () => {
       this._statusDep.changed();
@@ -182,6 +177,9 @@ export default class Meteor {
   }
 
   disconnect() {
+    if (typeof this.unsubFromNetworkStatus === 'function') {
+      this.unsubFromNetworkStatus();
+    }
     if (this._ddp) {
       this._ddp.disconnect();
     }
@@ -389,7 +387,7 @@ export default class Meteor {
   }
 
   handleLogout() {
-    Storage.removeItem(`TOKEN/${this.connectionId}`);
+    AsyncStorage.removeItem(`TOKEN/${this.connectionId}`);
     this._tokenIdSaved = null;
     this._userIdSaved = null;
     this._userDep.changed();
@@ -468,7 +466,7 @@ export default class Meteor {
   _handleLoginCallback(err, result) {
     if (!err) {
       // save user id and token
-      Storage.setItem(`TOKEN/${this.connectionId}`, result.token);
+      AsyncStorage.setItem(`TOKEN/${this.connectionId}`, result.token);
       this._tokenIdSaved = result.token;
       this._userIdSaved = result.id;
       this._userDep.changed();
@@ -497,7 +495,7 @@ export default class Meteor {
   async _loadInitialUser() {
     let value = null;
     try {
-      value = await Storage.getItem(`TOKEN/${this.connectionId}`);
+      value = await AsyncStorage.getItem(`TOKEN/${this.connectionId}`);
       console.log('Logging in with token:', value);
     } catch (error) {
       console && console.warn(`Error Loading User: ${error.message}`);
