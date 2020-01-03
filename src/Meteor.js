@@ -62,13 +62,6 @@ export default class Meteor {
     return this.getCollection('users');
   }
 
-  handleConnectionChange = state => {
-    const { isConnected } = state;
-    if (isConnected && this._ddp.autoReconnect) {
-      this._ddp.connect();
-    }
-  }
-
   unsubFromNetworkStatus = null;
   connect() {
     this._ddp = new DDP({
@@ -77,12 +70,17 @@ export default class Meteor {
       ...this.options
     });
 
-    this.unsubFromNetworkStatus = NetInfo.addEventListener(this.handleConnectionChange);
+    this.unsubFromNetworkStatus = NetInfo.addEventListener(state => {
+      const { isConnected } = state;
+      if (isConnected && this._ddp.autoReconnect) {
+        this._ddp.connect();
+      }
+    });
 
     this._ddp.on('connected', () => {
       this._statusDep.changed();
 
-      console && console.info('Connected to DDP server.');
+      // console && console.info('Connected to DDP server.');
       this._loadInitialUser().then(() => {
         this._subscriptionsRestart();
       });
@@ -92,7 +90,7 @@ export default class Meteor {
     this._ddp.on('disconnected', () => {
       this._statusDep.changed();
 
-      console && console.info('Disconnected from DDP server.');
+      // console && console.info('Disconnected from DDP server.');
       if (!this._ddp.autoReconnect) {
         return;
       }
