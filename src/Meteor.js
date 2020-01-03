@@ -8,6 +8,7 @@ import MeteorError from '../lib/Error.js';
 import isReactNative from './isReactNative.js';
 import { Collection } from './Collection';
 import withTracker from './components/withTracker';
+import useTracker from './components/useTracker';
 import ReactiveDict from './ReactiveDict';
 import Accounts from './user/Accounts';
 import { hashPassword } from '../lib/utils';
@@ -20,7 +21,7 @@ let InteractionManager;
 let ReactNative;
 if (isReactNative) {
   NetInfo = require('@react-native-community/netinfo').NetInfo; // eslint-disable-line
-  Storage = require('react-native').AsyncStorage; // eslint-disable-line
+  Storage = require('@react-native-community/async-storage').AsyncStorage; // eslint-disable-line
   InteractionManager = require('react-native').InteractionManager; // eslint-disable-line
   ReactNative = require('react-native/Libraries/Renderer/shims/ReactNative'); // eslint-disable-line
 } else {
@@ -545,6 +546,7 @@ export {
   MeteorError as Error,
   ReactiveDict,
   withTracker,
+  useTracker,
   isReactNative,
   Mongo
 };

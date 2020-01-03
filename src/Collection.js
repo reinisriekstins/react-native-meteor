@@ -4,7 +4,7 @@ import EJSON from 'ejson';
 import Random from '../lib/Random';
 import { isPlainObject } from '../lib/utils.js';
 
-class Cursor {
+export class Cursor {
   constructor(collection, docs) {
     this._docs = docs || [];
     this._collection = collection;
