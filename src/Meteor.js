@@ -77,29 +77,30 @@ export default class Meteor {
       }
     });
 
-    this._ddp.on('connected', () => {
-      this._statusDep.changed();
-
-      // console && console.info('Connected to DDP server.');
-      this._loadInitialUser().then(() => {
-        this._subscriptionsRestart();
+    const returnPromise = new Promise((resolve, reject) => {
+      this._ddp.on('connected', () => {
+        this._statusDep.changed();
+  
+        // console && console.info('Connected to DDP server.');
+        resolve();
       });
-    });
-
-    let lastDisconnect = null;
-    this._ddp.on('disconnected', () => {
-      this._statusDep.changed();
-
-      // console && console.info('Disconnected from DDP server.');
-      if (!this._ddp.autoReconnect) {
-        return;
-      }
-
-      if (!lastDisconnect || new Date() - lastDisconnect > 3000) {
-        this._ddp.connect();
-      }
-
-      lastDisconnect = new Date();
+  
+      let lastDisconnect = null;
+      this._ddp.on('disconnected', () => {
+        this._statusDep.changed();
+  
+        // console && console.info('Disconnected from DDP server.');
+        if (!this._ddp.autoReconnect) {
+          reject();
+          return;
+        }
+  
+        if (!lastDisconnect || new Date() - lastDisconnect > 3000) {
+          this._ddp.connect();
+        }
+  
+        lastDisconnect = new Date();
+      });
     });
 
     this._ddp.on('added', message => {
@@ -168,10 +169,14 @@ export default class Meteor {
       }
       /* eslint-enable guard-for-in */
     });
+
+    return returnPromise;
   }
 
   reconnect() {
-    this._ddp && this._ddp.connect();
+    if (this._ddp) {
+      this._ddp.connect();
+    }
   }
 
   disconnect() {
@@ -330,7 +335,7 @@ export default class Meteor {
         record.readyDeps.depend();
         return record.ready;
       },
-      subscriptionId: id
+      subscriptionId: id,
     };
 
     if (Tracker.active) {
@@ -413,7 +418,13 @@ export default class Meteor {
 
         this._handleLoginCallback(err, result);
 
-        typeof callback === 'function' && callback(err);
+        if (typeof callback === 'function') {
+          if (err) {
+            callback(err);
+          } else {
+            callback(result);
+          }
+        }
       }
     );
   }
@@ -473,33 +484,32 @@ export default class Meteor {
     }
   }
 
-  _loginWithToken(value) {
-    this._tokenIdSaved = value;
-    if (value !== null) {
-      this._startLoggingIn();
-      this.call('login', { resume: value }, (err, result) => {
-        this._endLoggingIn();
-        this._handleLoginCallback(err, result);
-      });
-    } else {
+  async loginWithStoredToken(callback) {
+    const token = await AsyncStorage.getItem(`TOKEN/${this.connectionId}`);
+    this._tokenIdSaved = token;
+
+    if (!token) {
       this._endLoggingIn();
+      if (typeof callback === 'function') {
+        callback(new Error('Token not found'));
+      }
+      return;
     }
+
+    this._startLoggingIn();
+    this.call('login', { resume: token }, (err, result) => {
+      this._endLoggingIn();
+      this._handleLoginCallback(err, result);
+      // this._subscriptionsRestart();
+
+      if (typeof callback === 'function') {
+        err ? callback(err) : callback(null, result);
+      }
+    });
   }
 
   getAuthToken() {
     return this._tokenIdSaved;
-  }
-
-  async _loadInitialUser() {
-    let value = null;
-    try {
-      value = await AsyncStorage.getItem(`TOKEN/${this.connectionId}`);
-      console.log('Logging in with token:', value);
-    } catch (error) {
-      console && console.warn(`Error Loading User: ${error.message}`);
-    } finally {
-      this._loginWithToken(value);
-    }
   }
 
   _subscriptionsRestart() {
