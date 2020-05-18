@@ -71,8 +71,8 @@ export default class Meteor {
     });
 
     this.unsubFromNetworkStatus = NetInfo.addEventListener(state => {
-      const { isConnected } = state;
-      if (isConnected && this._ddp.autoReconnect) {
+      const { isInternetReachable } = state;
+      if (isInternetReachable && this._ddp.autoReconnect) {
         this._ddp.connect();
       }
     });
@@ -91,7 +91,7 @@ export default class Meteor {
   
         // console && console.info('Disconnected from DDP server.');
         if (!this._ddp.autoReconnect) {
-          reject();
+          reject(new Error(`Couldn\'t connect to server`));
           return;
         }
   
@@ -382,21 +382,21 @@ export default class Meteor {
   }
 
   logout(callback) {
-    this.call('logout', err => {
-      this.handleLogout();
+    this.call('logout', async err => {
+      await this.handleLogout();
 
       typeof callback === 'function' && callback(err);
     });
   }
 
-  handleLogout() {
-    AsyncStorage.removeItem(`TOKEN/${this.connectionId}`);
+  async handleLogout() {
+    await AsyncStorage.removeItem(`TOKEN/${this.connectionId}`);
     this._tokenIdSaved = null;
     this._userIdSaved = null;
     this._userDep.changed();
   }
 
-  loginWithPassword(selector, password, group, callback) {
+  loginWithPassword(selector, password, group, authCode, callback) {
     if (typeof selector === 'string') {
       if (selector.indexOf('@') === -1) {
         selector = { username: selector };
@@ -411,7 +411,8 @@ export default class Meteor {
       {
         user: selector,
         password: hashPassword(password),
-        group
+        group,
+        authCode,
       },
       (err, result) => {
         this._endLoggingIn();
@@ -422,7 +423,7 @@ export default class Meteor {
           if (err) {
             callback(err);
           } else {
-            callback(result);
+            callback(null, result);
           }
         }
       }
