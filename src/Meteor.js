@@ -396,7 +396,7 @@ export default class Meteor {
     this._userDep.changed();
   }
 
-  loginWithPassword(selector, password, group, authCode, callback) {
+  loginWithPassword(selector, password, group, callback) {
     if (typeof selector === 'string') {
       if (selector.indexOf('@') === -1) {
         selector = { username: selector };
@@ -412,7 +412,6 @@ export default class Meteor {
         user: selector,
         password: hashPassword(password),
         group,
-        authCode,
       },
       (err, result) => {
         this._endLoggingIn();
