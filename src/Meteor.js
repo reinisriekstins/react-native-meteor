@@ -381,12 +381,9 @@ export default class Meteor {
     return this._isLoggingIn;
   }
 
-  logout(callback) {
-    this.call('logout', async err => {
-      await this.handleLogout();
-
-      typeof callback === 'function' && callback(err);
-    });
+  logout() {
+    this.call('logout');
+    this.handleLogout();
   }
 
   async handleLogout() {
@@ -500,7 +497,7 @@ export default class Meteor {
     this.call('login', { resume: token }, (err, result) => {
       this._endLoggingIn();
       this._handleLoginCallback(err, result);
-      // this._subscriptionsRestart();
+      this._subscriptionsRestart();
 
       if (typeof callback === 'function') {
         err ? callback(err) : callback(null, result);
