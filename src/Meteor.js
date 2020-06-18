@@ -135,11 +135,19 @@ export default class Meteor {
     });
 
     this._ddp.on('changed', message => {
-      this._db[message.collection] &&
+      if (this._db[message.collection]) {
+        const toClear = (() => {
+          if (message.cleared) {
+            return message.cleared.reduce((acc, field) => ({ ...acc, [field]: null }), {});
+          }
+          return {};
+        })();
         this._db[message.collection].upsert({
           _id: message.id,
-          ...message.fields
+          ...message.fields,
+          ...toClear,
         });
+      }
     });
 
     this._ddp.on('removed', message => {
